@@ -1,10 +1,7 @@
-# Copyright (c) OpenMMLab. All rights reserved.
 import argparse
 import os
 import os.path as osp
-from contextlib import contextmanager
 
-import mmengine
 from datasets import load_dataset
 from mmengine.config import Config, DictAction
 from transformers import DataCollatorForSeq2Seq, LlamaTokenizer
