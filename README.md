@@ -67,7 +67,7 @@ Convert the weights (Thanks for the script from [Lit-LLaMA](https://github.com/L
 
 ```
 python scripts/convert_checkpoint.py \
-    --output_dir checkpoints/lit-llama \
+    --output_dir checkpoints/mm-llama \
     --ckpt_dir checkpoints/llama \
     --tokenizer_path checkpoints/llama/tokenizer.model \
     --model_size 7B
