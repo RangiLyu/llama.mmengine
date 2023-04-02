@@ -1,1 +1,9 @@
-mmengine
+mmengine==0.7.0
+torch>=2.0.0
+sentencepiece
+tqdm
+numpy
+datasets
+git+https://github.com/huggingface/transformers.git
+gradio
+jsonargparse[signatures]
