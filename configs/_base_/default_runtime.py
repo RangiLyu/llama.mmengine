@@ -2,9 +2,9 @@ default_scope = 'mmllama'
 
 default_hooks = dict(
     timer=dict(type='IterTimerHook'),
-    logger=dict(type='LoggerHook', interval=50),
+    logger=dict(type='LoggerHook', interval=10),
     param_scheduler=dict(type='ParamSchedulerHook'),
-    checkpoint=dict(type='CheckpointHook', interval=100),  # TODO
+    checkpoint=dict(type='CheckpointHook', interval=1),  # TODO
     sampler_seed=dict(type='DistSamplerSeedHook'),
     visualization=dict(type='NaiveVisualizationHook'))
 
@@ -17,7 +17,7 @@ env_cfg = dict(
 vis_backends = [dict(type='LocalVisBackend'), dict(type='TensorboardVisBackend')]
 visualizer = dict(
     type='Visualizer', vis_backends=vis_backends, name='visualizer')
-log_processor = dict(type='LogProcessor', window_size=50, by_epoch=True)
+log_processor = dict(type='LogProcessor', window_size=10, by_epoch=True)
 
 log_level = 'INFO'
 load_from = None

@@ -11,8 +11,11 @@ from typing import Dict, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from mmengine.logging import print_log
+from mmengine.model import BaseModel
 
 import mmllama.models.llama as llama
+from mmllama.registry import MODELS
 
 
 class LoRALayer():
@@ -214,9 +217,9 @@ class CausalSelfAttention(llama.CausalSelfAttention):
 
 
 @contextmanager
-def with_lora(r, alpha, dropout, enabled: bool = True):
+def lora(r, alpha, dropout, enabled: bool = True):
     """A context manager under which you can instantiate the model with
-    LLoRA."""
+    LoRA."""
     if not enabled:
         yield
         return
@@ -229,3 +232,27 @@ def with_lora(r, alpha, dropout, enabled: bool = True):
     llama.CausalSelfAttention = causal_self_attention
 
     CausalSelfAttention.lora_config = None
+
+
+@MODELS.register_module()
+class LoRAModel(BaseModel):
+    def __init__(self,
+                 model: dict,
+                 r: float,
+                 alpha: float,
+                 dropout: float):
+        super().__init__()
+        with lora(r=r, alpha=alpha, dropout=dropout, enabled=True):
+            print_log('Building model with LoRA', logger='current')
+            self.model = MODELS.build(model)
+            mark_only_lora_as_trainable(self.model)
+        self.data_preprocessor = self.model.data_preprocessor
+
+    def forward(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
+
+    def state_dict(self, *args, **kwargs):
+        return lora_state_dict(self.model)
+
+    def load_state_dict(self, *args, **kwargs):
+        return self.model.load_state_dict(*args, **kwargs)

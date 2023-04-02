@@ -8,6 +8,7 @@ from functools import partial
 
 import torch
 import torch.nn as nn
+from mmengine.logging import print_log
 from mmengine.model import BaseModel
 from torch.nn import functional as F
 
@@ -172,13 +173,15 @@ class LLaMA(BaseModel):
                  vocab_size: int = 32000,
                  n_layer: int = 32,
                  n_head: int = 32,
-                 n_embd: int = 4096) -> None:
+                 n_embd: int = 4096,
+                 pretrained=None) -> None:
         super().__init__()
         assert vocab_size is not None
         assert block_size is not None
         self.block_size = block_size
         self.vocab_size = vocab_size
         self.n_layer = n_layer
+        self.pretrained = pretrained
 
         self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
 
@@ -197,7 +200,10 @@ class LLaMA(BaseModel):
             ))
 
     def init_weights(self):
-        super().init_weights()
+        if self.pretrained is not None:
+            checkpoint = torch.load(self.pretrained)
+            self.load_state_dict(checkpoint, strict=False)
+            print_log(f'Load pretrained model from {self.pretrained}')
 
 
     # def _init_weights(self, module: nn.Module) -> None:
@@ -304,16 +310,56 @@ class LLaMA(BaseModel):
 
 
 llama_configs = {
-    'toy': dict(n_layer=1, n_head=1, n_embd=128, block_size=1024, vocab_size=32000),  # for debug
-    '7B': dict(n_layer=32, n_head=32, n_embd=4096, block_size=4096, vocab_size=32000),
-    '13B': dict(n_layer=40, n_head=40, n_embd=5120, block_size=4096, vocab_size=32000),
-    '30B': dict(n_layer=60, n_head=52, n_embd=6656, block_size=4096, vocab_size=32000),
-    '65B': dict(n_layer=80, n_head=64, n_embd=8192, block_size=4096, vocab_size=32000),
+    'toy': dict(n_layer=1, n_head=1,
+                n_embd=128, block_size=1024,
+                vocab_size=32000, pretrained=None),  # for debug
+    '7B': dict(n_layer=32, n_head=32,
+               n_embd=4096, block_size=4096,
+               vocab_size=32000, pretrained='checkpoints/mm-llama/7B/state_dict.pth'),
+    '13B': dict(n_layer=40, n_head=40,
+                n_embd=5120, block_size=4096,
+                vocab_size=32000, pretrained='checkpoints/mm-llama/13B/state_dict.pth'),
+    '30B': dict(n_layer=60, n_head=52,
+                n_embd=6656, block_size=4096,
+                vocab_size=32000, pretrained='checkpoints/mm-llama/30B/state_dict.pth'),
+    '65B': dict(n_layer=80, n_head=64,
+                n_embd=8192, block_size=4096,
+                vocab_size=32000, pretrained='checkpoints/mm-llama/65B/state_dict.pth'),
 }
 
 
-MODELS.register_module('LLaMA-toy', module=partial(LLaMA, **llama_configs['toy']))  # for debug
-MODELS.register_module('LLaMA-7B', module=partial(LLaMA, **llama_configs['7B']))
-MODELS.register_module('LLaMA-13B', module=partial(LLaMA, **llama_configs['13B']))
-MODELS.register_module('LLaMA-30B', module=partial(LLaMA, **llama_configs['30B']))
-MODELS.register_module('LLaMA-65B', module=partial(LLaMA, **llama_configs['65B']))
+# TODO: mmengine support for partial
+# MODELS.register_module('LLaMA-toy', module=partial(LLaMA, **llama_configs['toy']))  # for debug
+# MODELS.register_module('LLaMA-7B', module=partial(LLaMA, **llama_configs['7B']))
+# MODELS.register_module('LLaMA-13B', module=partial(LLaMA, **llama_configs['13B']))
+# MODELS.register_module('LLaMA-30B', module=partial(LLaMA, **llama_configs['30B']))
+# MODELS.register_module('LLaMA-65B', module=partial(LLaMA, **llama_configs['65B']))
+
+
+@MODELS.register_module()
+class LLaMAToy(LLaMA):
+    def __init__(self, **kwargs):
+        super().__init__(**llama_configs['toy'], **kwargs)
+
+@MODELS.register_module()
+class LLaMA7B(LLaMA):
+    def __init__(self, **kwargs):
+        super().__init__(**llama_configs['7B'], **kwargs)
+
+
+@MODELS.register_module()
+class LLaMA13B(LLaMA):
+    def __init__(self, **kwargs):
+        super().__init__(**llama_configs['13B'], **kwargs)
+
+
+@MODELS.register_module()
+class LLaMA30B(LLaMA):
+    def __init__(self, **kwargs):
+        super().__init__(**llama_configs['30B'], **kwargs)
+
+
+@MODELS.register_module()
+class LLaMA65B(LLaMA):
+    def __init__(self, **kwargs):
+        super().__init__(**llama_configs['65B'], **kwargs)

@@ -5,15 +5,30 @@ import os
 import os.path as osp
 from functools import partial
 
+import mmengine
+from datasets import load_dataset
 from mmengine.config import Config, DictAction
 from mmengine.logging import print_log
 from mmengine.registry import RUNNERS
 from mmengine.runner import Runner
-from datasets import load_dataset
-from mmllama.datasets import Prompter
-from transformers import LlamaTokenizer, DataCollatorForSeq2Seq
-from mmllama.models import LLaMA
-from mmllama.datasets import seq2seq_collate
+from transformers import DataCollatorForSeq2Seq, LlamaTokenizer
+
+from mmllama.datasets import Prompter, seq2seq_collate
+
+
+def get_state_dict(module, destination=None, prefix='', keep_vars=False):
+    """Patch of mmengine to support LoRAModel."""
+    from mmengine.model import is_model_wrapper
+
+    # recursively check parallel module in case that the model has a
+    # complicated structure, e.g., nn.Module(nn.Module(DDP))
+    if is_model_wrapper(module):
+        module = module.module
+
+    return module.state_dict(destination, prefix, keep_vars)
+
+# Patch of mmengine to support LoRAModel
+mmengine.runner.checkpoint.get_state_dict = get_state_dict
 
 
 def parse_args():
@@ -70,20 +85,20 @@ def main():
                                 osp.splitext(osp.basename(args.config))[0])
 
 
-    if cfg.data_path.endswith(".json") or cfg.data_path.endswith(".jsonl"):
-        data = load_dataset("json", data_files=cfg.data_path)
+    if cfg.data_path.endswith('.json') or cfg.data_path.endswith('.jsonl'):
+        data = load_dataset('json', data_files=cfg.data_path)
     else:
-        data = load_dataset(cfg.data_path)       
-        
-    tokenizer = LlamaTokenizer.from_pretrained(cfg.tokenizer_path)
+        data = load_dataset(cfg.data_path)
+
+    tokenizer = LlamaTokenizer(cfg.tokenizer_path)
     tokenizer.pad_token_id = (
         0  # unk. we want this to be different from the eos token
     )
-    tokenizer.padding_side = "left"  # Allow batched inference
-    
+    tokenizer.padding_side = 'left'  # Allow batched inference
+
     # TODO: move hyps to cfg
     cutoff_len: int = 256
-    prompt_template_name: str = "alpaca"
+    prompt_template_name: str = 'alpaca'
     train_on_inputs: bool = True,  # if False, masks out inputs in loss
     prompter = Prompter(prompt_template_name)
 
@@ -100,56 +115,56 @@ def main():
             return_tensors=None,
         )
         if (
-            result["input_ids"][-1] != tokenizer.eos_token_id
-            and len(result["input_ids"]) < cutoff_len
+            result['input_ids'][-1] != tokenizer.eos_token_id
+            and len(result['input_ids']) < cutoff_len
             and add_eos_token
         ):
-            result["input_ids"].append(tokenizer.eos_token_id)
-            result["attention_mask"].append(1)
+            result['input_ids'].append(tokenizer.eos_token_id)
+            result['attention_mask'].append(1)
 
-        result["labels"] = result["input_ids"].copy()
+        result['labels'] = result['input_ids'].copy()
 
         return result
 
     def generate_and_tokenize_prompt(data_point):
         full_prompt = prompter.generate_prompt(
-            data_point["instruction"],
-            data_point["input"],
-            data_point["output"],
+            data_point['instruction'],
+            data_point['input'],
+            data_point['output'],
         )
         tokenized_full_prompt = tokenize(full_prompt)
         if not train_on_inputs:
             user_prompt = prompter.generate_prompt(
-                data_point["instruction"], data_point["input"]
+                data_point['instruction'], data_point['input']
             )
             tokenized_user_prompt = tokenize(user_prompt, add_eos_token=False)
-            user_prompt_len = len(tokenized_user_prompt["input_ids"])
+            user_prompt_len = len(tokenized_user_prompt['input_ids'])
 
-            tokenized_full_prompt["labels"] = [
+            tokenized_full_prompt['labels'] = [
                 -100
-            ] * user_prompt_len + tokenized_full_prompt["labels"][
+            ] * user_prompt_len + tokenized_full_prompt['labels'][
                 user_prompt_len:
             ]  # could be sped up, probably
         return tokenized_full_prompt
-        
-    train_val = data["train"].train_test_split(
+
+    train_val = data['train'].train_test_split(
         test_size=cfg.val_set_size, shuffle=True, seed=42
     )
-    train_data = train_val["train"].shuffle().map(generate_and_tokenize_prompt)
-    
-    val_data = train_val["test"].shuffle().map(generate_and_tokenize_prompt)
+    train_data = train_val['train'].shuffle().map(generate_and_tokenize_prompt)
+
+    val_data = train_val['test'].shuffle().map(generate_and_tokenize_prompt)
     # collator = DataCollatorForSeq2Seq(
     #         tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True
     #     )
     from mmengine.registry import FUNCTIONS
     FUNCTIONS.register_module(name='seq2seq_collate', module=seq2seq_collate)
-    
-    cfg.train_dataloader.dataset = train_data.remove_columns(("instruction", "input", "output"))
+
+    cfg.train_dataloader.dataset = train_data.remove_columns(('instruction', 'input', 'output'))
     cfg.train_dataloader.collate_fn.tokenizer = tokenizer
-    cfg.val_dataloader.dataset = val_data.remove_columns(("instruction", "input", "output"))
+    cfg.val_dataloader.dataset = val_data.remove_columns(('instruction', 'input', 'output'))
     cfg.val_dataloader.collate_fn.tokenizer = tokenizer
-    
-    
+
+
     # resume is determined in this priority: resume from > auto_resume
     if args.resume == 'auto':
         cfg.resume = True
