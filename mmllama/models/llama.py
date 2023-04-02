@@ -8,6 +8,7 @@ from functools import partial
 
 import torch
 import torch.nn as nn
+from mmengine import Config
 from mmengine.logging import print_log
 from mmengine.model import BaseModel
 from torch.nn import functional as F
@@ -174,7 +175,11 @@ class LLaMA(BaseModel):
                  n_layer: int = 32,
                  n_head: int = 32,
                  n_embd: int = 4096,
-                 pretrained=None) -> None:
+                 pretrained=None,
+                 test_cfg=dict(
+                    max_new_tokens=50,
+                    temperature=1.0,
+                    top_k=200,)) -> None:
         super().__init__()
         assert vocab_size is not None
         assert block_size is not None
@@ -182,6 +187,7 @@ class LLaMA(BaseModel):
         self.vocab_size = vocab_size
         self.n_layer = n_layer
         self.pretrained = pretrained
+        self.test_cfg = Config(test_cfg)
 
         self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
 
@@ -266,19 +272,14 @@ class LLaMA(BaseModel):
         # Enable model parallelism
         shift_labels = shift_labels.to(shift_logits.device)
         loss = loss_fct(shift_logits, shift_labels)
-        print(loss)
         return dict(loss=loss)
 
     @torch.no_grad()
-    def predict(self,
-                input_ids,
-                max_new_tokens=50,
-                temperature=1.0,
-                top_k=200,):
+    def predict(self, input_ids):
         logits = self._forward(input_ids)
         # create an empty tensor of the expected final shape and fill in the current tokens
         B, T = input_ids.shape
-        T_new = T + max_new_tokens
+        T_new = T + self.test_cfg.max_new_tokens
         empty = torch.empty(B, T_new, dtype=input_ids.dtype, device=input_ids.device)
         empty[:, :T] = input_ids
         input_ids = empty
@@ -293,11 +294,11 @@ class LLaMA(BaseModel):
 
             # forward
             logits = self._forward(idx_cond)
-            logits = logits[:, -1] / temperature
+            logits = logits[:, -1] / self.test_cfg.temperature
 
             # optionally crop the logits to only the top k options
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            if self.test_cfg.get('top_k', None) is not None:
+                v, _ = torch.topk(logits, min(self.test_cfg.top_k, logits.size(-1)))
                 logits[logits < v[:, [-1]]] = -float('Inf')
 
             probs = torch.nn.functional.softmax(logits, dim=-1)

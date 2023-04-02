@@ -1,34 +1,16 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import argparse
-import logging
 import os
 import os.path as osp
-from functools import partial
+from contextlib import contextmanager
 
 import mmengine
 from datasets import load_dataset
 from mmengine.config import Config, DictAction
-from mmengine.logging import print_log
-from mmengine.registry import RUNNERS
-from mmengine.runner import Runner
 from transformers import DataCollatorForSeq2Seq, LlamaTokenizer
 
 from mmllama.datasets import Prompter, seq2seq_collate
-
-
-def get_state_dict(module, destination=None, prefix='', keep_vars=False):
-    """Patch of mmengine to support LoRAModel."""
-    from mmengine.model import is_model_wrapper
-
-    # recursively check parallel module in case that the model has a
-    # complicated structure, e.g., nn.Module(nn.Module(DDP))
-    if is_model_wrapper(module):
-        module = module.module
-
-    return module.state_dict(destination, prefix, keep_vars)
-
-# Patch of mmengine to support LoRAModel
-mmengine.runner.checkpoint.get_state_dict = get_state_dict
+from mmllama.engine import Runner
 
 
 def parse_args():
@@ -173,15 +155,7 @@ def main():
         cfg.resume = True
         cfg.load_from = args.resume
 
-    # build the runner from config
-    if 'runner_type' not in cfg:
-        # build the default runner
-        runner = Runner.from_cfg(cfg)
-    else:
-        # build customized runner from the registry
-        # if 'runner_type' is set in the cfg
-        runner = RUNNERS.build(cfg)
-
+    runner = Runner.from_cfg(cfg)
     # start training
     runner.train()
 
