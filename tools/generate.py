@@ -1,6 +1,4 @@
 import argparse
-import os
-import os.path as osp
 
 import torch
 from mmengine.config import Config, DictAction
@@ -11,15 +9,11 @@ from mmllama.datasets import Prompter
 from mmllama.registry import MODELS
 
 
-# TODO: support fuse_conv_bn and format_only
 def parse_args():
     parser = argparse.ArgumentParser(
         description='MMDet test (and eval) a model')
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
-    parser.add_argument(
-        '--work-dir',
-        help='the directory to save the file containing evaluation metrics')
     parser.add_argument(
         '--cfg-options',
         nargs='+',
@@ -31,18 +25,10 @@ def parse_args():
         'Note that the quotation marks are necessary and that no white space '
         'is allowed.')
     parser.add_argument(
-        '--launcher',
-        choices=['none', 'pytorch', 'slurm', 'mpi'],
-        default='none',
-        help='job launcher')
-    parser.add_argument('--tta', action='store_true')
-    # When using PyTorch version >= 2.0.0, the `torch.distributed.launch`
-    # will pass the `--local-rank` parameter to `tools/train.py` instead
-    # of `--local_rank`.
-    parser.add_argument('--local_rank', '--local-rank', type=int, default=0)
+        '--instructions',
+        nargs='+',
+        help='instructions to generate responses')
     args = parser.parse_args()
-    if 'LOCAL_RANK' not in os.environ:
-        os.environ['LOCAL_RANK'] = str(args.local_rank)
     return args
 
 
@@ -51,22 +37,13 @@ def main():
 
     # load config
     cfg = Config.fromfile(args.config)
-    cfg.launcher = args.launcher
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
 
-    # work_dir is determined in this priority: CLI > segment in file > filename
-    if args.work_dir is not None:
-        # update configs according to CLI args if args.work_dir is not None
-        cfg.work_dir = args.work_dir
-    elif cfg.get('work_dir', None) is None:
-        # use config filename as default work_dir if cfg.work_dir is None
-        cfg.work_dir = osp.join('./work_dirs',
-                                osp.splitext(osp.basename(args.config))[0])
     print_log('Building model', logger='current')
     model = MODELS.build(cfg.model)
     model.init_weights()
-    model.load_state_dict(torch.load(args.checkpoint))
+    model.load_state_dict(torch.load(args.checkpoint)['state_dict'], strict=False)
     model.half()
     model.cuda()
     model.eval()
@@ -90,6 +67,9 @@ def main():
         max_new_tokens=128,
         **kwargs,
     ):
+        """Generate a response to an instruction.
+        Modified from https://github.com/tloen/alpaca-lora
+        """
         prompt = prompter.generate_prompt(instruction, input)
         inputs = tokenizer(prompt, return_tensors='pt')
         input_ids = inputs['input_ids'].to('cuda')
@@ -103,8 +83,10 @@ def main():
         output = tokenizer.decode(s)
         return prompter.get_response(output)
 
-    # testing code for readme
-    for instruction in [
+    if args.instructions is not None:
+        instructions = args.instructions
+    else:
+        instructions = [
         'Tell me about alpacas.',
         'Tell me about the president of Mexico in 2019.',
         'Tell me about the king of France in 2019.',
@@ -114,7 +96,8 @@ def main():
         "Tell me five words that rhyme with 'shock'.",
         "Translate the sentence 'I have no mouth but I must scream' into Spanish.",
         'Count up from 1 to 500.',
-    ]:
+    ]
+    for instruction in instructions:
         print('Instruction:', instruction)
         print('Response:', evaluate(instruction))
         print()
